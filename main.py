@@ -30,11 +30,27 @@ try:
 except NameError:
     pass
 
+# Fills in the site's About page. CHANGE the author name to your own!
+# (try/except so an older Drafter version can't crash the program.)
+try:
+    set_site_information(
+        author="Your Name",
+        description="A budgeting website for college students: enter your income and "
+                    "expenses, see a diagram of where your money goes, and find out how "
+                    "long your savings goal will take.",
+        sources=[],
+        planning=[],
+        links=[]
+    )
+except Exception:
+    pass
+
 # Global CONSTANTS are allowed (they never change).
 BAR_WIDTH = 12          # how many characters wide the text bars are
 SAVINGS_RATE = 0.50     # we recommend saving half of the money left after expenses
 CATEGORY_CHOICES = ["Rent/Housing", "Groceries", "Eating Out", "Transportation",
                     "Entertainment", "Subscriptions", "School Supplies", "Other"]
+SLICE_EMOJIS = {"Needs": "🟦", "Wants": "🟧", "Savings": "🟩", "Free to spend": "🟪"}
 SLICE_COLORS = {"Needs": "#2E86AB", "Wants": "#F18F01",
                 "Savings": "#4C9F70", "Free to spend": "#9B8EC4"}
 
@@ -68,11 +84,27 @@ class State:
 
 def money(amount: float) -> str:
     """Format a number as dollars, like 1234.5 -> '$1,234.50'."""
-    # format(x, ",.2f") puts commas in and keeps exactly 2 decimals.
-    # (It was not covered in class: it is Python's built-in number formatting.)
-    if amount < 0:
-        return "-$" + format(-amount, ",.2f")
-    return "$" + format(amount, ",.2f")
+    cents = int(round(abs(amount) * 100))
+    leftover_cents = cents % 100
+    digits = str(cents // 100)
+
+    # Build the dollar part from right to left, adding a comma after every 3 digits.
+    dollars_text = ""
+    digit_count = 0
+    for position in range(len(digits) - 1, -1, -1):
+        if digit_count > 0 and digit_count % 3 == 0:
+            dollars_text = "," + dollars_text
+        dollars_text = digits[position] + dollars_text
+        digit_count = digit_count + 1
+
+    cents_text = str(leftover_cents)
+    if leftover_cents < 10:
+        cents_text = "0" + cents_text
+
+    sign = ""
+    if amount < 0 and cents > 0:
+        sign = "-"
+    return sign + "$" + dollars_text + "." + cents_text
 
 
 def total_expenses(expenses: list[Expense]) -> float:
@@ -107,7 +139,7 @@ def months_to_goal(current: float, goal: float, saved_per_month: float) -> int:
         return 0
     if saved_per_month <= 0:
         return -1
-    return math.ceil(amount_left / saved_per_month)
+    return int(math.ceil(amount_left / saved_per_month))
 
 
 def budget_grade(income: float, expense_total: float) -> str:
@@ -129,7 +161,7 @@ def make_bar(amount: float, maximum: float, width: int) -> str:
     if maximum <= 0 or amount <= 0:
         filled = 0
     else:
-        filled = round(amount / maximum * width)
+        filled = int(round(amount / maximum * width))
     return "█" * filled + "░" * (width - filled)
 
 
@@ -202,7 +234,7 @@ def sort_expenses_by_cost(expenses: list[Expense]) -> list[Expense]:
     return sorted(expenses, key=get_cost, reverse=True)
 
 
-def budget_slices(income: float, expenses: list[Expense]) -> list[tuple]:
+def budget_slices(income: float, expenses: list[Expense]) -> list:
     """Split income into (label, amount) slices: Needs, Wants, Savings, Free to spend.
     Slices that are zero or negative (like 'free' when over budget) are left out."""
     needs = total_by_type(expenses, True)
@@ -218,21 +250,44 @@ def budget_slices(income: float, expenses: list[Expense]) -> list[tuple]:
     return slices
 
 
-def slice_text_lines(slices: list[tuple]) -> list[str]:
-    """Text version of the diagram (used if matplotlib isn't installed)."""
+def slice_text_lines(slices: list) -> list[str]:
+    """One colored legend line per slice, like '🟦 Needs: $400.00 (40%)'."""
     total = 0.0
     for label, amount in slices:
         total = total + amount
 
     lines = []
     for label, amount in slices:
-        percent = round(amount / total * 100)
-        lines.append(make_bar(amount, total, BAR_WIDTH) + "  " + label + ": " +
-                     money(amount) + " (" + str(percent) + "%)")
+        percent = int(round(amount / total * 100))
+        lines.append(SLICE_EMOJIS[label] + " " + label + ": " + money(amount) +
+                     " (" + str(percent) + "%)")
     return lines
 
 
-def draw_budget_diagram(state: State, slices: list[tuple]) -> None:
+def stacked_bar(slices: list, width: int) -> str:
+    """One long bar of colored squares showing how income is split, e.g. 🟦🟦🟧🟩."""
+    total = 0.0
+    for label, amount in slices:
+        total = total + amount
+    if total <= 0:
+        return ""
+
+    bar = ""
+    squares_used = 0
+    for position in range(len(slices)):
+        label, amount = slices[position]
+        if position == len(slices) - 1:
+            squares = width - squares_used      # last slice gets whatever is left
+        else:
+            squares = int(round(amount / total * width))
+        if squares < 0:
+            squares = 0
+        bar = bar + SLICE_EMOJIS[label] * squares
+        squares_used = squares_used + squares
+    return bar
+
+
+def draw_budget_diagram(state: State, slices: list) -> None:
     """Draw the two-part budget diagram with matplotlib (donut + expense bars).
     NOTE: this function draws a picture, so it can't be unit tested with assert_equal;
     the numbers behind it (budget_slices, sort_expenses_by_cost) are tested instead."""
@@ -271,14 +326,24 @@ def draw_budget_diagram(state: State, slices: list[tuple]) -> None:
 
 
 def diagram_content(state: State) -> list:
-    """Return the page pieces for the final diagram (picture, or text if no charts)."""
+    """Return the page pieces for the final diagram.
+    The colored-square bar and legend work everywhere. If matplotlib is available,
+    the donut + bar picture is added too (if drawing it fails, we just skip it)."""
     slices = budget_slices(state.monthly_income, state.expenses)
     if len(slices) == 0 or len(state.expenses) == 0:
         return ["Add your income and some expenses to see your diagram!"]
-    if not CHARTS_AVAILABLE:
-        return slice_text_lines(slices)
-    draw_budget_diagram(state, slices)
-    return [MatPlotLibPlot()]
+
+    content = [stacked_bar(slices, 20)]
+    for line in slice_text_lines(slices):
+        content.append(line)
+
+    if CHARTS_AVAILABLE:
+        try:
+            draw_budget_diagram(state, slices)
+            content.append(MatPlotLibPlot())
+        except Exception:
+            pass
+    return content
 
 
 # =====================================
@@ -560,6 +625,9 @@ def run_helper_tests() -> None:
              Expense("Entertainment", 50.0, False, "")]
     assert_equal(money(1234.5), "$1,234.50")
     assert_equal(money(-5.0), "-$5.00")
+    assert_equal(money(0.0), "$0.00")
+    assert_equal(money(5.05), "$5.05")
+    assert_equal(money(1234567.891), "$1,234,567.89")
     assert_equal(total_expenses(mixed), 550.0)
     assert_equal(total_expenses([]), 0.0)
     assert_equal(total_by_type(mixed, True), 400.0)
@@ -595,7 +663,9 @@ def run_helper_tests() -> None:
                  [("Needs", 400.0), ("Wants", 150.0), ("Savings", 225.0), ("Free to spend", 225.0)])
     assert_equal(budget_slices(100.0, mixed), [("Needs", 400.0), ("Wants", 150.0)])
     assert_equal(slice_text_lines([("Needs", 50.0), ("Wants", 50.0)]),
-                 ["██████░░░░░░  Needs: $50.00 (50%)", "██████░░░░░░  Wants: $50.00 (50%)"])
+                 ["🟦 Needs: $50.00 (50%)", "🟧 Wants: $50.00 (50%)"])
+    assert_equal(stacked_bar([("Needs", 1.0), ("Wants", 1.0), ("Savings", 2.0)], 4), "🟦🟧🟩🟩")
+    assert_equal(stacked_bar([], 4), "")
 
 
 def run_route_tests() -> None:
