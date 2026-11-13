@@ -333,7 +333,7 @@ def diagram_content(state: State) -> list:
     if len(slices) == 0 or len(state.expenses) == 0:
         return ["Add your income and some expenses to see your diagram!"]
 
-    content = [stacked_bar(slices, 20)]
+    content: list = [stacked_bar(slices, 20)]
     for line in slice_text_lines(slices):
         content.append(line)
 
@@ -418,7 +418,7 @@ def save_setup(state: State, student_name: str, monthly_income: float,
 @route
 def expenses_page(state: State) -> Page:
     """Shows the expenses added so far, with buttons for what to do next."""
-    content = [
+    content: list = [
         Header("🧾 Your Monthly Expenses"),
         "Here's what you've added so far, " + state.student_name + ":",
         ""
@@ -544,7 +544,7 @@ def dashboard(state: State) -> Page:
     saved_each_month = monthly_savings(state.monthly_income, expense_total)
     months = months_to_goal(state.current_savings, state.savings_goal, saved_each_month)
 
-    content = [
+    content: list = [
         Header("📊 " + state.student_name + "'s Dashboard"),
         "Grade: " + budget_grade(state.monthly_income, expense_total),
         "",
@@ -594,7 +594,7 @@ def tips_page(state: State) -> Page:
     if len(tips) == 0:
         tips.append("🌟 Your budget looks great. Keep it up!")
 
-    content = [Header("💡 Tips for " + state.student_name)]
+    content: list = [Header("💡 Tips for " + state.student_name)]
     for tip in tips:
         content.append(tip)
     content.extend([
